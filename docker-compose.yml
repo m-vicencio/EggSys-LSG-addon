@@ -1,0 +1,23 @@
+services:
+  app:
+    build: .
+    container_name: eggsys-app
+    ports:
+      # El Caddyfile proxea :8443 -> host.docker.internal:3001
+      - "3001:3001"
+    env_file:
+      - .env
+      - .env.local
+    environment:
+      # eggsys-db y el adaptador viven fuera de este compose y publican
+      # sus puertos en el host, asi que desde el contenedor van por el gateway.
+      DATABASE_URL: postgresql://eggsys:${EGGSYS_DB_PASSWORD:?falta EGGSYS_DB_PASSWORD en .env}@host.docker.internal:5433/eggsys
+      LSG_ADAPTER_URL: http://host.docker.internal:14142
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

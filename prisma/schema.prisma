@@ -1,0 +1,383 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+// USUARIO
+// ─────────────────────────────────────────────
+model User {
+  id                   String                 @id @default(cuid())
+  email                String                 @unique
+  name                 String?
+  image                String?
+  hashedPassword       String?
+  passwordResetToken   String?                @unique
+  passwordResetExpires DateTime?
+  accountUsers         AccountUser[]
+  appAccounts          AppAccount[]
+  accounts             Account[]
+  transactions         Transaction[]
+  transfers            Transfer[]
+  recurringTransactions RecurringTransaction[]
+  budgets              Budget[]
+  categories           Category[]
+  pets                 Pet[]
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  sessions             Session[]
+  settings             UserSettings?
+  lsgConnection        LsgConnection?
+  lsgEvents            LsgEventOutbox[]
+}
+
+model UserSettings {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Apariencia e Idioma
+  language        String   @default("es")      // "es", "en", "pt"
+  theme           String   @default("default") // "dark", "cute", "cyber", "retro"
+  // Recordatorios Globales (Engagement)
+  dailyReminders  Boolean  @default(true)      // ¿Quiere recibir notificaciones push?
+  reminderTime    String?  @default("20:00")   // ¿A qué hora prefiere que le avisemos?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// MODELOS NEXT-AUTH
+// ─────────────────────────────────────────────
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  @@unique([identifier, token])
+}
+
+// ─────────────────────────────────────────────
+// CUENTAS BANCARIAS 
+// ─────────────────────────────────────────────
+model AppAccount {
+  id              String        @id @default(cuid())
+  userId          String?
+  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name            String
+  balance         Decimal       @default(0) @db.Decimal(12, 2)
+  currency        String        @default("CLP") // <-- ¡AQUÍ! "USD", "EUR", "CLP", etc.
+  users           AccountUser[]
+  transactions    Transaction[]
+  pet             Pet?
+  savingProgress  SavingProgress?
+  budgets         Budget[]
+  isShared        Boolean       @default(false)
+  isSavings       Boolean       @default(false)
+  savingGoal      Decimal?      @db.Decimal(12, 2)
+  isDefault       Boolean       @default(false)
+  transfersOut           Transfer[]             @relation("TransferFrom")
+  transfersIn            Transfer[]             @relation("TransferTo")
+  recurringTransactions  RecurringTransaction[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+// ─────────────────────────────────────────────
+// MASCOTA VIRTUAL
+// ─────────────────────────────────────────────
+
+model PetTypeDefinition {
+  id    String @id @default(cuid())
+  name  String @unique
+  iconUrl  String?
+  pets  Pet[]
+  stageAssets PetTypeStageAsset[]
+}
+
+model PetStageDefinition {
+  id    String @id @default(cuid())
+  name  String @unique
+  pets  Pet[]
+  stageAssets PetTypeStageAsset[]
+}
+// Relaciona el tipo de mascota, la etapa y el asset correspondiente
+model PetTypeStageAsset {
+  id        String   @id @default(cuid())
+  petTypeId String
+  stageId   String
+  assetUrl  String
+  petType   PetTypeDefinition   @relation(fields: [petTypeId], references: [id], onDelete: Cascade)
+  stage     PetStageDefinition  @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  @@unique([petTypeId, stageId])
+}
+
+model Pet {
+  id              String      @id @default(cuid())
+  accountId       String      @unique
+  userId          String
+  name            String
+  stageId         String
+  typeId          String
+  level           Int         @default(1)
+  currentXp       Int         @default(0)
+  gachaTickets   Int         @default(0)
+  xpBlockedUntil  DateTime?
+  hatchedAt       DateTime?
+  createdAt       DateTime    @default(now())
+  account         AppAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  petItems        PetItem[]
+  gachaHistory    GachaHistory[]
+  type            PetTypeDefinition @relation(fields: [typeId], references: [id])
+  stage           PetStageDefinition @relation(fields: [stageId], references: [id])
+}
+
+model SavingProgress {
+  id               String      @id @default(cuid())
+  accountId        String   @unique
+  progressPercent  Int
+  lastMilestone    Int
+  updatedAt        DateTime    @default(now())
+  account          AppAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model ItemDefinition {
+  id         String    @id @default(cuid())
+  type       ItemType
+  name       String    @unique
+  rarity     ItemRarity
+  assetUrl   String
+  petItems   PetItem[]
+  gachaHistory GachaHistory[]
+}
+
+model PetItem {
+  id                String    @id @default(cuid())
+  petId             String
+  itemDefinitionId  String
+  isEquipped        Boolean   @default(false)
+  unlockedAt        DateTime  @default(now())
+  pet               Pet       @relation(fields: [petId], references: [id], onDelete: Cascade)
+  itemDefinition    ItemDefinition @relation(fields: [itemDefinitionId], references: [id], onDelete: Cascade)
+}
+
+model GachaHistory {
+  id                String    @id @default(cuid())
+  petId             String
+  itemDefinitionId  String
+  reason            String
+  createdAt         DateTime  @default(now())
+  pet               Pet       @relation(fields: [petId], references: [id], onDelete: Cascade)
+  itemDefinition    ItemDefinition @relation(fields: [itemDefinitionId], references: [id], onDelete: Cascade)
+}
+
+enum ItemType {
+  HAT
+  BACKGROUND
+}
+
+enum ItemRarity {
+  COMMON
+  RARE
+  EPIC
+}
+
+// ─────────────────────────────────────────────
+// CATEGORIAS
+// ─────────────────────────────────────────────
+model Category {
+  id           String        @id @default(cuid())
+  name         String        // nombre legible, e.g. "Restaurante"
+  type         TransactionType  // INCOME | EXPENSE
+  iconName     String        @default("HelpCircleIcon")
+  color        String        @default("#64748b")
+  isActive     Boolean       @default(true)
+  transactions Transaction[]
+  isDefault    Boolean       @default(false) // para evitar que se borren categorías predefinidas
+  userId       String?
+  user         User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budgets      Budget[]
+  recurringTransactions RecurringTransaction[]
+  @@unique([userId, name, type])
+}
+
+// ─────────────────────────────────────────────
+// TRANSACCIONES (ingresos y egresos)
+// ─────────────────────────────────────────────
+model Transaction {
+  id        String          @id @default(cuid())
+  name      String
+  amount    Decimal         @db.Decimal(12, 2)
+  date      DateTime        @default(now())
+  month     Int // 1–12
+  year      Int
+  type      TransactionType // INCOME | EXPENSE
+  source    String?         // Fuente opcional, e.g. "Banco X", "Efectivo"
+  tags      String[]        // Etiquetas tipo #cenaRomantica
+  comment   String?         // Comentario opcional
+  accountId String
+  account   AppAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Añade este modelo a tu sección de Finanzas
+model Transfer {
+  id              String      @id @default(cuid())
+  amount          Decimal     @db.Decimal(12, 2)
+  date            DateTime    @default(now())
+  comment         String?
+  // De dónde sale el dinero
+  fromAccountId   String
+  fromAccount     AppAccount  @relation("TransferFrom", fields: [fromAccountId], references: [id], onDelete: Cascade)
+  // A dónde entra el dinero
+  toAccountId     String
+  toAccount       AppAccount  @relation("TransferTo", fields: [toAccountId], references: [id], onDelete: Cascade)
+  // Quién hizo la transferencia
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime    @default(now())
+}
+
+model RecurringTransaction {
+  id            String          @id @default(cuid())
+  name          String          // "Pago Netflix"
+  amount        Decimal         @db.Decimal(12, 2)
+  type          TransactionType // INCOME (ej. Salario) | EXPENSE (ej. Suscripción)
+  // Frecuencia
+  frequency     FrequencyType   @default(MONTHLY)
+  startDate     DateTime        // Cuándo empieza a cobrarse
+  endDate       DateTime?       // Opcional: cuándo termina (ej. un préstamo de 6 cuotas)
+  lastProcessed DateTime?       // Cuándo fue la última vez que el sistema generó el gasto
+  isActive      Boolean         @default(true) // Permite pausar suscripciones
+  // Relaciones (De dónde se cobra y en qué categoría entra)
+  accountId     String
+  account       AppAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  categoryId    String
+  category      Category        @relation(fields: [categoryId], references: [id])
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+// ─────────────────────────────────────────────
+// PRESUPUESTOS
+model Budget {
+  id          String  @id @default(cuid())
+  name        String
+  idealAmount Decimal @db.Decimal(12, 2)
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  accountId   String
+  account     AppAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@unique([accountId, categoryId])
+}
+// ─────────────────────────────────────────────
+
+
+model AccountUser {
+  id         String      @id @default(cuid())
+  userId     String
+  accountId  String
+  role       AccountRole @default(MEMBER)
+  invitedAt  DateTime?
+  acceptedAt DateTime?
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account    AppAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, accountId])
+}
+
+// ─────────────────────────────────────────────
+// ADDON LIFESYNC-GAMES (sensor conductual)
+// ─────────────────────────────────────────────
+model LsgConnection {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lsgPlayerId    Int       // id_players de LSG-Auth /whoami
+  lsgEmail       String    // solo para mostrar en la UI
+  enabled        Boolean   @default(true) // kill switch por usuario
+  disabledEvents String[]  @default([])   // tipos de evento apagados por el usuario
+  linkedAt       DateTime  @default(now())
+  lastSyncAt     DateTime?
+  // Sin credenciales aquí: el token del usuario, y la contraseña cifrada si
+  // aceptó la reconexión automática, viven solo en el adaptador. Estos dos
+  // campos son un espejo de su estado para poder pintar la UI aunque el
+  // adaptador no responda; la fuente de verdad sigue siendo el adaptador.
+  credentialConsent Boolean @default(false)
+  credentialState   String  @default("NONE") // NONE | ACTIVE | INVALID | UNREADABLE
+}
+
+model LsgEventOutbox {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType  String   // "streak.daily_logging", ...
+  periodKey  String   // "2026-W29" | "2026-07:budgetId" | "accId:50" | "tx:txId"
+  clientRef  String   @unique // uuid5 determinista → idempotencia
+  payload    Json     // señal conductual, SIN montos
+  occurredAt DateTime
+  status     String   @default("PENDING") // PENDING|SENT|SYNCED|REJECTED|DUPLICATE|ERROR
+  attempts   Int      @default(0)
+  lastError  String?
+  points     Int?
+  dimension  String?
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, eventType, periodKey]) // segunda barrera anti-duplicado
+  @@index([status, createdAt])
+}
+
+enum AccountRole {
+  OWNER
+  MEMBER
+}
+enum TransactionType {
+  INCOME // Ingreso
+  EXPENSE // Egreso
+}
+
+enum FrequencyType {
+  DAILY
+  WEEKLY
+  BIWEEKLY  // Quincenal
+  MONTHLY
+  YEARLY
+}

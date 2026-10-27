@@ -1,0 +1,7 @@
+.*
+*.md
+node_modules
+eggsys-lsg-adapter
+public/sw.js
+Caddyfile
+perf-results

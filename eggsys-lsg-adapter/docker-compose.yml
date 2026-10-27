@@ -1,0 +1,50 @@
+services:
+  adapter:
+    build: .
+    # Migrar antes de abrir el puerto: si el esquema no queda al dia, que falle
+    # ruidosamente en vez de servir peticiones contra columnas inexistentes.
+    command: sh -c "uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 14142"
+    ports:
+      - "14142:14142"
+    env_file: .env
+    environment:
+      # Dentro de Docker el hostname de Postgres es el nombre del servicio
+      DATABASE_URL: postgresql+asyncpg://lsg:lsgthesismv@adapter-db:5432/eggsys_lsg
+    depends_on:
+      adapter-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:14142/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks: [lsg-net]
+
+  adapter-db:
+    image: postgres:16-alpine
+    # Sin puertos publicados al host: solo accesible por la red interna
+    environment:
+      POSTGRES_USER: lsg
+      POSTGRES_PASSWORD: lsgthesismv
+      POSTGRES_DB: eggsys_lsg
+    volumes:
+      - adapter_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lsg -d eggsys_lsg"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks: [lsg-net]
+
+volumes:
+  adapter_pgdata:
+
+networks:
+  lsg-net:
+    driver: bridge

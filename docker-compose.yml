@@ -1,7 +1,15 @@
+# El adaptador LSG (y su Postgres) se define en su propio compose y se suma
+# aqui: `docker compose up -d` desde la raiz levanta todo.
+include:
+  - eggsys-lsg-adapter/docker-compose.yml
+
 services:
   app:
     build: .
     container_name: eggsys-app
+    # Migrar antes de abrir el puerto, igual que el adaptador: si el esquema no
+    # queda al dia, que falle ruidosamente.
+    command: sh -c "npx prisma migrate deploy && npm start"
     ports:
       # El Caddyfile proxea :8443 -> host.docker.internal:3001
       - "3001:3001"
@@ -9,15 +17,40 @@ services:
       - .env
       - .env.local
     environment:
-      # eggsys-db y el adaptador viven fuera de este compose y publican
-      # sus puertos en el host, asi que desde el contenedor van por el gateway.
-      DATABASE_URL: postgresql://eggsys:${EGGSYS_DB_PASSWORD:?falta EGGSYS_DB_PASSWORD en .env}@host.docker.internal:5433/eggsys
-      LSG_ADAPTER_URL: http://host.docker.internal:14142
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      DATABASE_URL: postgresql://eggsys:${EGGSYS_DB_PASSWORD:?falta EGGSYS_DB_PASSWORD en .env}@db:5432/eggsys
+      LSG_ADAPTER_URL: http://adapter:14142
+    # Sin depends_on del adaptador: EggSys debe funcionar aunque este caido.
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    networks: [default, lsg-net]
+
+  db:
+    image: postgres:16-alpine
+    container_name: eggsys-db
+    environment:
+      POSTGRES_USER: eggsys
+      POSTGRES_PASSWORD: ${EGGSYS_DB_PASSWORD:?falta EGGSYS_DB_PASSWORD en .env}
+      POSTGRES_DB: eggsys
+    # Publicado para la CLI de Prisma y `npm run dev` desde el host.
+    ports:
+      - "5433:5432"
+    volumes:
+      - eggsys_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eggsys -d eggsys"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  eggsys_pgdata:
+    # Sobreescribible para reutilizar el volumen de un eggsys-db creado antes.
+    name: ${EGGSYS_DB_VOLUME:-eggsys_pgdata}

@@ -1,5 +1,5 @@
 # Build + runtime de EggSys (Next.js). El adaptador LSG tiene su propio Dockerfile.
-FROM node:22-slim AS build
+FROM node:24-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
@@ -9,7 +9,7 @@ COPY . .
 # asi que `prisma generate` no necesita DATABASE_URL en build.
 RUN npm run build
 
-FROM node:22-slim
+FROM node:24-slim
 WORKDIR /app
 ENV NODE_ENV=production PORT=3001 NEXT_TELEMETRY_DISABLED=1
 # Se copia la app entera en vez de usar output "standalone": la imagen pesa

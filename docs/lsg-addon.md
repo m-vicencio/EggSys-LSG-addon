@@ -347,14 +347,33 @@ silencio. El `prisma generate` del build no necesita `DATABASE_URL` porque el
 datasource no declara `url`: la conexión la abre el driver adapter en tiempo de
 ejecución.
 
-**La topología no se rehízo para el compose.** `eggsys-db` y `eggsys-caddy`
-existían ya como contenedores creados a mano, y meterlos en el compose habría
-obligado a recrearlos, junto con su volumen de datos, sin ganar nada. El contenedor
-los alcanza por `host.docker.internal` con `extra_hosts: host-gateway`, igual que
-al adaptador, que tiene su propio compose. El precio es que `eggsys-app` y
-`npm run dev` publican los dos el puerto 3001 y hay que bajar uno antes de
-levantar el otro; a cambio, desarrollo y producción usan exactamente la misma
-URL y la configuración de Caddy no cambia.
+**Un solo compose levanta todo el sistema.** El de la raíz define `app` y `db`
+(`eggsys-db`, antes un contenedor creado a mano) e incluye con `include:` el
+compose del adaptador, que sigue siendo autónomo y puede levantarse solo. Dentro
+de Docker la app llega a la base y al adaptador por nombre de servicio
+(`db:5432`, `adapter:14142`). Desplegar en un equipo nuevo se reduce a completar
+los `.env` y ejecutar `docker compose up -d --build`, sin pasos manuales que el
+repositorio no registre.
+
+Dos decisiones sostienen esa unificación:
+
+- **La app migra al arrancar**, con `prisma migrate deploy` antes de `npm start`,
+  igual que el adaptador corre `alembic upgrade head` antes de uvicorn. Un esquema
+  desfasado hace fallar el arranque en vez de servir peticiones contra columnas
+  inexistentes.
+- **La app no depende del adaptador para arrancar**: solo espera a que `db` esté
+  sana. Con el adaptador caído EggSys sigue funcionando y los eventos esperan en
+  el outbox, que es el contrato del addon desde el prototipo 1.
+
+Los volúmenes llevan nombre fijo para no perder datos al cambiar de proyecto: el
+del adaptador conserva el nombre que tenía cuando se levantaba solo, y el de
+`db` se puede apuntar con `EGGSYS_DB_VOLUME` al de la base creada antes a mano.
+
+`eggsys-caddy` queda fuera del compose porque publica también otros proyectos del
+mismo equipo; sigue alcanzando la app por `host.docker.internal:3001`. El precio
+de publicar ese puerto es que `eggsys-app` y `npm run dev` lo usan los dos y hay
+que bajar uno antes de levantar el otro; a cambio, desarrollo y producción usan
+la misma URL y la configuración de Caddy no cambia.
 
 La dockerización destapó un defecto que el modo desarrollo escondía: `mailer.ts`
 creaba el transporter SMTP **al importar el módulo**, así que el `next build`

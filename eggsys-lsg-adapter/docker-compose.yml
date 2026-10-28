@@ -44,6 +44,9 @@ services:
 
 volumes:
   adapter_pgdata:
+    # Nombre fijo: el mismo volumen tanto al levantar este compose solo como
+    # incluido desde el de la raiz (si no, cada proyecto crea el suyo vacio).
+    name: eggsys-lsg-adapter_adapter_pgdata
 
 networks:
   lsg-net:
